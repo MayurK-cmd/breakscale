@@ -129,7 +129,12 @@ export async function storeTopology(
   base: string,
 ): Promise<string> {
   if (!hasStore())
-    throw new ShareStoreError('No share store is configured for this build.');
+    // Not reachable from the app, which checks `hasStore()` and falls
+    // back to a fragment link. It is here for whoever calls this module
+    // directly, and it names the variable rather than the symptom.
+    throw new ShareStoreError(
+      'No link store is configured. Set VITE_SHARE_API, or run `bun run dev:links` to use a local one.',
+    );
 
   const { blob, key } = await seal(await encodeBytes(topology));
 
@@ -142,16 +147,29 @@ export async function storeTopology(
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
   } catch {
-    throw new ShareStoreError('Could not reach the link store. Check your connection.');
+    throw new ShareStoreError(
+      'Could not reach the link store. Check your connection, or save the design to a file instead.',
+    );
   }
 
   if (res.status === 429) {
+    // Someone sharing designs by hand never sees this; it is the limit
+    // that stops one caller spending the day's budget. So it is worded
+    // as a pause rather than a refusal, and it says how long, because a
+    // wait nobody has put a number on feels indefinite.
     throw new ShareStoreError(
-      'Too many links from here just now. Try again in a minute.',
+      'Slow down a moment. That is a lot of links at once, so the store is taking a breather. Try again in a minute, or save the design to a file.',
+    );
+  }
+  if (res.status === 413) {
+    throw new ShareStoreError(
+      'That design is too big for the link store. Save it to a file instead, which has no limit.',
     );
   }
   if (!res.ok) {
-    throw new ShareStoreError('The link store refused this design.');
+    throw new ShareStoreError(
+      'The link store would not take this design. Saving it to a file works either way.',
+    );
   }
 
   const body: unknown = await res.json().catch(() => null);

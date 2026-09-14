@@ -92,9 +92,16 @@ describe('storeTopology', () => {
     await expect(storeTopology(SIMPLE, BASE)).rejects.toBeInstanceOf(ShareStoreError);
   });
 
-  it('says so when the store rate limits', async () => {
+  it('says how long to wait when the store rate limits', async () => {
     vi.stubGlobal('fetch', () => Promise.resolve(new Response('{}', { status: 429 })));
-    await expect(storeTopology(SIMPLE, BASE)).rejects.toThrow(/too many/i);
+    // The number matters more than the wording: a wait nobody has put a
+    // figure on reads as indefinite.
+    await expect(storeTopology(SIMPLE, BASE)).rejects.toThrow(/minute/i);
+  });
+
+  it('points an oversized design at the file export', async () => {
+    vi.stubGlobal('fetch', () => Promise.resolve(new Response('{}', { status: 413 })));
+    await expect(storeTopology(SIMPLE, BASE)).rejects.toThrow(/file/i);
   });
 
   it('reports a refusal', async () => {

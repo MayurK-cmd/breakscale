@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:links": "bun run --cwd worker dev & VITE_SHARE_API=http://localhost:8787 vite; kill 0",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "test": "vitest run",

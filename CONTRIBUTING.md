@@ -104,8 +104,9 @@ default, sharing falls back to the fragment format and everything else behaves n
 tests do not need it either: they point the client at a stub rather than at a running worker, so
 `bun run test` passes on a clean checkout.
 
-If you do want to run the store locally, `wrangler dev` inside `worker/` and put its address in
-`.env.local` as `VITE_SHARE_API`.
+If you do want to exercise short links, `bun run dev:links` starts the worker alongside the app
+and points one at the other. It needs [Wrangler](https://developers.cloudflare.com/workers/wrangler/),
+which is Cloudflare's CLI, and a free Cloudflare account. Ordinary `bun dev` needs neither.
 
 ## The one rule that matters most
 

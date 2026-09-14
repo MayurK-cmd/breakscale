@@ -1,0 +1,29 @@
+name = "breakscale-links"
+main = "src/index.ts"
+compatibility_date = "2026-06-23"
+
+# A subdomain of the project's own domain rather than the account's
+# workers.dev address, which is tied to the account name rather than to
+# this project and would have to change if the project ever moved.
+[[routes]]
+pattern = "links.breakscale.tech"
+custom_domain = true
+
+[[kv_namespaces]]
+binding = "LINKS"
+id = "82bcbdd08b624862981be2e276f9a557"
+
+# Writes per address per minute. Enforced by the runtime, so it is atomic
+# and costs no KV writes; a counter in KV would be neither. Twenty is far
+# above anyone sharing designs by hand and far below what it would take to
+# spend the day's KV write budget.
+[[ratelimits]]
+name = "WRITE_LIMIT"
+namespace_id = "1001"
+
+  [ratelimits.simple]
+  limit = 20
+  period = 60
+
+[vars]
+ALLOWED_ORIGINS = "https://breakscale.tech,http://localhost:5173"

@@ -7,10 +7,18 @@ import { packTopology, unpackTopology } from './share/wire';
 /* ------------------------------------------------------------------ *
  * Share links.
  *
- * A design is carried entirely in the URL fragment, so a link is a
- * complete document and nothing is ever uploaded anywhere. The fragment
+ * A design is carried entirely in the URL fragment, so a link built here
+ * is a complete document that needs nothing to exist. The fragment
  * (everything after `#`) is never sent to a server by the browser, which
  * is why the design goes there rather than in a query string.
+ *
+ * This is no longer the only kind of link. `share/store.ts` builds the
+ * short kind, which keeps the design in a store and names it with an id;
+ * that path encrypts first and puts its key in the fragment for exactly
+ * the reason the design goes there here. Both end in the same validated
+ * topology. What this file owns is the format that needs no store, which
+ * is why its readers are kept: every link ever built by a `d1.`, `d2.` or
+ * `d3.` encoder opens offline, forever.
  *
  * The payload is `d3.` followed by base64url text. Two facts drive that
  * shape:
@@ -130,7 +138,7 @@ const MAX_ENCODED_CHARS = 512 * 1024;
  * take one, so spelling the narrower type keeps the mismatch a compile
  * error here rather than a runtime surprise in one browser.
  */
-type Bytes = Uint8Array<ArrayBuffer>;
+export type Bytes = Uint8Array<ArrayBuffer>;
 
 /* ---------------- base64url ---------------- */
 
@@ -317,9 +325,9 @@ export async function encodeTopology(topology: Topology): Promise<string> {
  * only the fragment is replaced.
  *
  * Throws `ShareLinkTooLargeError` when the result would not survive the
- * places links get pasted. There is no server to fall back to: the app
- * is a static site and promises that a design never leaves the browser,
- * so a design that does not fit in a link is shared as a file instead.
+ * places links get pasted. Nothing is trimmed to fit: a design that does
+ * not fit goes through the store instead (`share/store.ts`), or as a file
+ * where there is no store configured.
  */
 export async function buildShareUrl(topology: Topology, base: string): Promise<string> {
   const hash = await encodeTopology(topology);
@@ -392,26 +400,51 @@ export async function decodeTopology(hash: string): Promise<ShareResult> {
   const body = fromBase64Url(text.slice(prefix.length));
   if (!body || body.length < 2) return { status: 'invalid', message: BAD_LINK };
 
+  // Current-generation links share their whole tail with the stored
+  // path, which arrives at the same bytes by a different route.
+  if (prefix === 'd3.') return decodeBytes(body);
+
+  const payload = await unframe(body);
+  if (!payload) return { status: 'invalid', message: BAD_LINK };
+  return validate(parseLegacy(payload, prefix));
+}
+
+/**
+ * Strip the one-byte compression flag and inflate if it says to.
+ *
+ * Returns null for a flag this build does not know, a stream that will
+ * not inflate, and a payload that inflates past the ceiling: all of them
+ * mean the same thing to the reader.
+ */
+async function unframe(body: Bytes): Promise<Bytes | null> {
   const flag = body[0];
   const rest = body.subarray(1);
-  let payload: Bytes | null;
   if (flag === DEFLATED) {
-    if (!hasCompression()) {
-      // A compressed link opened where nothing can inflate it. Say so
-      // rather than showing an empty canvas.
-      return { status: 'invalid', message: BAD_LINK };
-    }
-    payload = await inflate(rest, MAX_DECODED_BYTES);
-  } else if (flag === RAW) {
-    payload = rest.length > MAX_DECODED_BYTES ? null : rest;
-  } else {
-    // A flag from a format this build does not know.
-    payload = null;
+    // A compressed link opened where nothing can inflate it.
+    if (!hasCompression()) return null;
+    return inflate(rest, MAX_DECODED_BYTES);
   }
-  if (!payload) return { status: 'invalid', message: BAD_LINK };
+  if (flag === RAW) return rest.length > MAX_DECODED_BYTES ? null : rest;
+  return null;
+}
 
-  const parsed =
-    prefix === 'd3.' ? unpackTopology(payload) : parseLegacy(payload, prefix);
+/**
+ * Turn the packed bytes of a design back into a validated topology.
+ *
+ * Split out from `decodeTopology` because a stored link arrives at the
+ * same place by a different route: its bytes come from the store and are
+ * decrypted rather than lifted out of the fragment. Both paths land here
+ * so there is one validator rather than two that drift.
+ */
+export async function decodeBytes(payload: Bytes): Promise<ShareResult> {
+  if (payload.length < 2) return { status: 'invalid', message: BAD_LINK };
+  const body = await unframe(payload);
+  if (!body) return { status: 'invalid', message: BAD_LINK };
+  return validate(unpackTopology(body));
+}
+
+/** The shared tail of both decode paths: structural gate, then sanitize. */
+function validate(parsed: Parsed | null): ShareResult {
   if (!parsed) return { status: 'invalid', message: BAD_LINK };
 
   const candidate = { nodes: parsed.nodes, edges: parsed.edges };

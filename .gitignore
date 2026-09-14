@@ -17,3 +17,9 @@ scratch-*.ts
 
 # Local Claude Code permissions, per-machine and not part of the project
 .claude/settings.local.json
+
+# Wrangler's local state. The cache under it records the machine that ran
+# it, down to the city and the ISP, so it is per-machine and private.
+.wrangler/
+worker/.wrangler/
+.dev.vars*

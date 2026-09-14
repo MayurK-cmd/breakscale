@@ -315,6 +315,16 @@
   flex: none;
 }
 
+/* Labelled rather than an icon alone: this one is worth the width, because
+   it is the control that turns a design into something someone else can
+   see, and an unlabelled glyph is exactly how it stayed undiscovered. */
+.app-share-btn {
+  flex: none;
+  display: inline-flex;
+  gap: var(--sp-2);
+  align-items: center;
+}
+
 /* The menu button and the menu it opens. Relative, so the menu can anchor
    under the button rather than to the bar's far corner. */
 .app-menu-wrap {

@@ -75,6 +75,14 @@ import {
   decodeTopology,
   hasShareHash,
 } from './share';
+import {
+  ShareStoreError,
+  fetchStored,
+  hasStore,
+  hasStoredLink,
+  storeTopology,
+} from './share/store';
+import { Share, type ShareState } from './components/Share';
 import { DESIGN_FILE_ACCEPT, downloadDesign, readDesignFile } from './designFile';
 import { downloadBlob, svgToPng } from './imageExport';
 import './App.css';
@@ -555,7 +563,10 @@ function saveSession(session: Session): void {
  */
 function shareHashPresent(): boolean {
   try {
-    return hasShareHash(window.location.hash);
+    return (
+      hasShareHash(window.location.hash) ||
+      hasStoredLink(window.location.search, window.location.hash)
+    );
   } catch {
     // No DOM (a test importing App), or a locked-down location object.
     return false;
@@ -599,6 +610,10 @@ export default function App() {
    * read-only promise this feature makes.
    */
   const [sharePending, setSharePending] = useState(shareHashPresent);
+
+  /** The share dialog, and whatever the link build has got to so far. */
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareState, setShareState] = useState<ShareState>({ status: 'idle' });
 
   const [topology, setTopology] = useState<Topology>(initial.topology);
   const [rps, setRps] = useState<number>(initial.rps);
@@ -2212,7 +2227,14 @@ export default function App() {
   useEffect(() => {
     if (!sharePending) return;
     let cancelled = false;
-    void decodeTopology(window.location.hash).then((result) => {
+    // A stored link keeps its id in the query and its key in the fragment,
+    // so it is recognised by the pair rather than by a prefix. Everything
+    // after the decode is identical: both routes end in the same validated
+    // topology and the same toast.
+    const opening = hasStoredLink(window.location.search, window.location.hash)
+      ? fetchStored(window.location.search, window.location.hash)
+      : decodeTopology(window.location.hash);
+    void opening.then((result) => {
       if (cancelled) return;
       if (result.status === 'ok') {
         setTopology(result.topology);
@@ -2246,44 +2268,60 @@ export default function App() {
   }, [engine, resetLostRate]);
 
   /**
-   * Copy link. Writes the whole design into the URL fragment and puts that
-   * URL on the clipboard, so the confirmation the reader gets is the same
-   * receipt undo and redo use.
+   * Open the share dialog without building anything. The design is only
+   * uploaded once the reader asks for a link, so looking is free and a
+   * store write always follows a deliberate click.
+   */
+  const handleOpenShare = useCallback(() => {
+    setShareState({ status: 'idle' });
+    setShareOpen(true);
+  }, []);
+
+  /**
+   * Build the link. Goes to the store first, which is what keeps the URL
+   * short whatever the design; where there is no store, or it cannot be
+   * reached, the fragment format still carries the whole design.
    */
   const handleCopyLink = useCallback(() => {
+    setShareState({ status: 'working' });
     void (async () => {
-      let text: string;
+      // The store first, because it is what keeps a link short enough to
+      // survive being pasted. Where there is no store configured, or it
+      // cannot be reached, the fragment format still carries the design
+      // and is the better answer than no link at all.
+      if (hasStore()) {
+        try {
+          setShareState({
+            status: 'ready',
+            url: await storeTopology(topology, window.location.href),
+          });
+          return;
+        } catch (e) {
+          if (e instanceof ShareStoreError) {
+            setShareState({ status: 'failed', message: e.message });
+            return;
+          }
+          // Anything else came from encoding rather than the network, and
+          // the fragment path below would hit it too.
+        }
+      }
+
       try {
-        text = await buildShareUrl(topology, window.location.href);
+        setShareState({
+          status: 'ready',
+          url: await buildShareUrl(topology, window.location.href),
+        });
       } catch (e) {
         // A design that does not fit is told about, never trimmed to fit.
-        // There is no server to hand it to; the file export carries any
-        // size.
-        toastSeq.current += 1;
-        setToast({
-          text:
+        // The file export carries any size.
+        setShareState({
+          status: 'failed',
+          message:
             e instanceof ShareLinkTooLargeError
-              ? `This design is too big for a link (${e.chars} characters; links stop working past ${e.limit}). Save it to a file to share it.`
+              ? `This design is too big for a link (${e.chars} characters; links stop working past ${e.limit}). Save it to a file instead.`
               : 'Could not build the link.',
-          id: toastSeq.current,
         });
-        return;
       }
-      try {
-        await navigator.clipboard.writeText(text);
-      } catch {
-        toastSeq.current += 1;
-        setToast({
-          text: 'Could not copy the link. Your browser blocked clipboard access.',
-          id: toastSeq.current,
-        });
-        return;
-      }
-      toastSeq.current += 1;
-      setToast({
-        text: 'Link copied. It carries the whole design.',
-        id: toastSeq.current,
-      });
     })();
   }, [topology]);
 
@@ -2732,6 +2770,31 @@ export default function App() {
             )}
           </a>
 
+          {/* Labelled, and in the bar rather than three levels down inside
+              Settings. Sending a design to someone is a thing people want
+              to do often, and a feature nobody can find has not shipped. */}
+          <button
+            type="button"
+            className="btn app-share-btn"
+            onClick={handleOpenShare}
+            title="Get a link to this design"
+          >
+            <svg
+              width="15"
+              height="15"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5" />
+            </svg>
+            Share
+          </button>
+
           <div className="app-menu-wrap">
             <button
               type="button"
@@ -3067,10 +3130,20 @@ export default function App() {
       <TooltipLayer />
       <Glossary open={glossaryOpen} onClose={closeGlossary} focusId={glossaryFocusId} />
       <Shortcuts open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
+      <Share
+        open={shareOpen}
+        state={shareState}
+        onClose={() => setShareOpen(false)}
+        onShare={handleCopyLink}
+        onExport={() => {
+          setShareOpen(false);
+          handleExport();
+        }}
+      />
       {/* The real file input, kept off screen. A bare one cannot be styled,
           so the Settings row calls click() on this. It lives beside the
-          dialogs rather than in the top bar, which no longer carries any
-          save or share control. */}
+          dialogs rather than in the top bar, which carries only the share
+          control. */}
       <input
         ref={fileInputRef}
         type="file"
@@ -3103,7 +3176,7 @@ export default function App() {
         onClose={() => setSettingsOpen(false)}
         onExport={handleExport}
         onImport={() => fileInputRef.current?.click()}
-        onCopyLink={handleCopyLink}
+        onCopyLink={handleOpenShare}
         onExportImage={handleExportImage}
         onBackup={handleBackup}
         onRestore={() => backupInputRef.current?.click()}

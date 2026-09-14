@@ -84,7 +84,9 @@ something goes red.
 - **Chaos controls.** Crash a node, slow it down, force an error rate, or cut a single link.
 - **Deterministic.** The same seed and topology replay identically, every time.
 - **Explanations built in.** Every metric and unit has a plain-language definition.
-- **Runs entirely in the browser.** No account, no backend, no telemetry. Your designs stay local.
+- **Runs entirely in the browser.** No account, no telemetry. A design stays on your machine
+  unless you share a link, and a shared design is encrypted here before it is stored, with the
+  key in the part of the address browsers never send.
 
 ## What is in it
 

@@ -23,6 +23,15 @@ test.describe('Layout - Light Theme', () => {
     await page.goto('/?preset=single-server');
     await page.waitForLoadState('networkidle');
     await page.waitForTimeout(2000);
+    // Pause simulation before screenshot to capture consistent state
+    await page.evaluate(() => {
+      // Find the simulation control and pause it
+      const pauseBtn = document.querySelector(
+        '[aria-label="Pause simulation"]',
+      ) as HTMLElement;
+      if (pauseBtn) pauseBtn.click();
+    });
+    await page.waitForTimeout(500);
     await expect(page).toHaveScreenshot('light/single-server.png', {
       threshold: 0.15,
       maxDiffPixels: 5000,
@@ -38,6 +47,14 @@ test.describe('Layout - Light Theme', () => {
     await page.goto('/?preset=load-balanced');
     await page.waitForLoadState('networkidle');
     await page.waitForTimeout(2000);
+    // Pause simulation
+    await page.evaluate(() => {
+      const pauseBtn = document.querySelector(
+        '[aria-label="Pause simulation"]',
+      ) as HTMLElement;
+      if (pauseBtn) pauseBtn.click();
+    });
+    await page.waitForTimeout(500);
     await expect(page).toHaveScreenshot('light/load-balanced.png', {
       threshold: 0.15,
       maxDiffPixels: 5000,
@@ -53,6 +70,14 @@ test.describe('Layout - Light Theme', () => {
     await page.goto('/?preset=cache-aside');
     await page.waitForLoadState('networkidle');
     await page.waitForTimeout(2000);
+    // Pause simulation
+    await page.evaluate(() => {
+      const pauseBtn = document.querySelector(
+        '[aria-label="Pause simulation"]',
+      ) as HTMLElement;
+      if (pauseBtn) pauseBtn.click();
+    });
+    await page.waitForTimeout(500);
     await expect(page).toHaveScreenshot('light/cache-side.png', {
       threshold: 0.15,
       maxDiffPixels: 5000,
@@ -68,10 +93,17 @@ test.describe('Layout - Dark Theme', () => {
    * Dark mode has its own failure modes due to generated colors.
    */
   test('Floating Panels Clear Islands (Dark)', async ({ page }) => {
-    // Switch to dark theme via UI (using settings toggle)
-    await page.goto('/?preset=single-server#theme=dark');
+    await page.goto('/?preset=single-server&theme=dark');
     await page.waitForLoadState('networkidle');
     await page.waitForTimeout(2000);
+    // Pause simulation
+    await page.evaluate(() => {
+      const pauseBtn = document.querySelector(
+        '[aria-label="Pause simulation"]',
+      ) as HTMLElement;
+      if (pauseBtn) pauseBtn.click();
+    });
+    await page.waitForTimeout(500);
     await expect(page).toHaveScreenshot('dark/single-server.png', {
       threshold: 0.15,
       maxDiffPixels: 5000,
@@ -84,9 +116,17 @@ test.describe('Layout - Dark Theme', () => {
    * Test annotation plates in dark mode.
    */
   test('Annotation Plates Stack Correctly (Dark)', async ({ page }) => {
-    await page.goto('/?preset=load-balanced#theme=dark');
+    await page.goto('/?preset=load-balanced&theme=dark');
     await page.waitForLoadState('networkidle');
     await page.waitForTimeout(2000);
+    // Pause simulation
+    await page.evaluate(() => {
+      const pauseBtn = document.querySelector(
+        '[aria-label="Pause simulation"]',
+      ) as HTMLElement;
+      if (pauseBtn) pauseBtn.click();
+    });
+    await page.waitForTimeout(500);
     await expect(page).toHaveScreenshot('dark/load-balanced.png', {
       threshold: 0.15,
       maxDiffPixels: 5000,
@@ -99,9 +139,17 @@ test.describe('Layout - Dark Theme', () => {
    * Test scrollbars in dark mode.
    */
   test('Scrollbar Corner Geometry (Dark)', async ({ page }) => {
-    await page.goto('/?preset=cache-aside#theme=dark');
+    await page.goto('/?preset=cache-aside&theme=dark');
     await page.waitForLoadState('networkidle');
     await page.waitForTimeout(2000);
+    // Pause simulation
+    await page.evaluate(() => {
+      const pauseBtn = document.querySelector(
+        '[aria-label="Pause simulation"]',
+      ) as HTMLElement;
+      if (pauseBtn) pauseBtn.click();
+    });
+    await page.waitForTimeout(500);
     await expect(page).toHaveScreenshot('dark/cache-side.png', {
       threshold: 0.15,
       maxDiffPixels: 5000,

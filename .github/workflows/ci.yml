@@ -70,21 +70,24 @@ jobs:
       - name: Install Playwright browsers
         run: bunx playwright install --with-deps chromium
 
-      - name: Generate initial baselines
-        run: bun generate-baselines
-        env:
-          CI: 'true'
-
-      - name: Run visual regression tests
+      - name: Run visual regression tests (compare against existing baselines)
         run: bun test:visual
 
-      - name: Upload visual regression baselines
+      - name: Upload visual regression baseline changes
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-regression-diff-${{ github.run_id }}
+          path: tests/visual/layout.test.ts-snapshots/
+          retention-days: 7
+
+      - name: Upload existing baseline artifacts
         if: github.event_name == 'pull_request'
         uses: actions/upload-artifact@v4
         with:
-          name: visual-regression-baselines
-          path: playwright-baselines/
-          retention-days: 7
+          name: existing-baselines
+          path: tests/visual/layout.test.ts-snapshots/
+          retention-days: 90
 
   # The suite and the build run on every OS the project supports. Linux alone
   # missed a path bug that broke the whole suite on Windows (#16): the code the

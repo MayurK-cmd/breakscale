@@ -70,6 +70,7 @@ import { usePresence } from './components/presence';
 import { SessionHistory, syncEngine } from './history';
 import type { HistoryEntry, HistorySnapshot } from './history';
 import { buildShareUrl, decodeTopology, hasShareHash } from './share';
+import { getUrlParams, loadPresetById } from './urlParams';
 import { DESIGN_FILE_ACCEPT, downloadDesign, readDesignFile } from './designFile';
 import { downloadBlob, svgToPng } from './imageExport';
 import './App.css';
@@ -492,6 +493,22 @@ interface Session {
  */
 
 function loadSession(): Session {
+  // Check URL parameters first - they take priority over localStorage
+  // This allows direct navigation to examples and is essential for visual regression tests
+  const urlParams = getUrlParams();
+
+  if (urlParams?.presetId) {
+    const preset = loadPresetById(urlParams.presetId);
+    if (preset) {
+      return {
+        topology: preset.topology,
+        rps: clientRps(preset.topology),
+        presetId: preset.id,
+      };
+    }
+  }
+
+  // Fall back to localStorage if no URL params specified
   const fallback: Session = {
     topology: PRESETS[0]!.topology,
     rps: clientRps(PRESETS[0]!.topology),
@@ -621,7 +638,26 @@ export default function App() {
    */
   /* The theme is applied to <html>, which is outside React, so this is a
      genuine external-system synchronisation rather than derived state. */
-  const themeChoice = usePreference('theme');
+  const [themeChoice, setThemeChoice] = usePreference('theme');
+
+  // Parse theme from URL params with priority over localStorage
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const themeParam = params.get('theme');
+
+    if (themeParam === 'dark' || themeParam === 'light') {
+      // Only apply if different from current setting
+      if (themeParam !== themeChoice) {
+        setThemeChoice(themeParam as 'light' | 'dark');
+        applyTheme(themeParam as 'light' | 'dark');
+      }
+    } else if (themeParam === null) {
+      // Normal case: just use the stored preference
+      // (already set by useState from localStorage)
+    }
+  }, [themeChoice, setThemeChoice]);
+
+  // Re-apply theme when it changes
   useEffect(() => {
     applyTheme(themeChoice);
   }, [themeChoice]);

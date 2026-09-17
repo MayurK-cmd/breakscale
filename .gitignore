@@ -18,6 +18,7 @@ scratch-*.ts
 # Local Claude Code permissions, per-machine and not part of the project
 .claude/settings.local.json
 
-# Playwright test artifacts and baselines
-.playwright/
-playwright-baselines/
+# Playwright artifacts. Baselines are NOT ignored: they are committed, per
+# platform, and tests/visual/README.md is the contract for refreshing them.
+test-results/
+playwright-report/

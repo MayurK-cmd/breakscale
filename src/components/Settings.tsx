@@ -259,10 +259,10 @@ export function Settings({
                   <button type="button" className="st-action" onClick={onCopyLink}>
                     <Glyph d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5" />
                     <span className="st-action-text">
-                      <span className="st-row-label">Copy link</span>
+                      <span className="st-row-label">Share a link</span>
                       <span className="st-hint">
-                        Carries the design in the address itself. Nothing is uploaded
-                        and nobody needs an account.
+                        Encrypted in your browser first, so the store cannot read it.
+                        Nobody needs an account.
                       </span>
                     </span>
                   </button>

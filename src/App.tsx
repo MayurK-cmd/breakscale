@@ -43,6 +43,7 @@ import { cloneSubgraph, isTopology, selectionSubgraph } from './clipboard';
 import type { ClipboardSubgraph } from './clipboard';
 import {
   NOTE_DEFAULT_WIDTH,
+  NOTE_MAX_CHARS,
   SECTION_MIN_HEIGHT,
   SECTION_MIN_WIDTH,
   NOTE_MAX_SCALE,
@@ -71,7 +72,20 @@ import { applyTheme } from './theme/applyTheme';
 import { usePresence } from './components/presence';
 import { SessionHistory, syncEngine } from './history';
 import type { HistoryEntry, HistorySnapshot } from './history';
-import { buildShareUrl, decodeTopology, hasShareHash } from './share';
+import {
+  ShareLinkTooLargeError,
+  buildShareUrl,
+  decodeTopology,
+  hasShareHash,
+} from './share';
+import {
+  ShareStoreError,
+  fetchStored,
+  hasStore,
+  hasStoredLink,
+  storeTopology,
+} from './share/store';
+import { Share, type ShareState } from './components/Share';
 import { DESIGN_FILE_ACCEPT, downloadDesign, readDesignFile } from './designFile';
 import { downloadBlob, svgToPng } from './imageExport';
 import './App.css';
@@ -560,7 +574,10 @@ function saveSession(session: Session): void {
  */
 function shareHashPresent(): boolean {
   try {
-    return hasShareHash(window.location.hash);
+    return (
+      hasShareHash(window.location.hash) ||
+      hasStoredLink(window.location.search, window.location.hash)
+    );
   } catch {
     // No DOM (a test importing App), or a locked-down location object.
     return false;
@@ -652,6 +669,10 @@ export default function App() {
      start true and the persistence hold covers either. */
   const [sharePending, setSharePending] = useState(shareHashPresent);
 
+  /** The share dialog, and whatever the link build has got to so far. */
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareState, setShareState] = useState<ShareState>({ status: 'idle' });
+
   const [topology, setTopology] = useState<Topology>(initial.topology);
   const [rps, setRps] = useState<number>(initial.rps);
   const [presetId, setPresetId] = useState<string | null>(initial.presetId);
@@ -686,7 +707,7 @@ export default function App() {
      in Settings, which persists their choice as normal. It therefore never
      writes the stored preference, and a reload without the parameter boots
      the reader's own theme. `#theme=` is parsed from the hash, which share
-     payloads (d1./d2.) cannot collide with: they carry no '=' at all. */
+      payloads (d1./d2./d3.) cannot collide with: they carry no '=' at all. */
   const themeChoice = usePreference('theme');
   const themeOverrideRef = useRef<ThemeChoice | null>(boot.theme);
   const lastThemeChoiceRef = useRef(themeChoice);
@@ -1324,19 +1345,24 @@ export default function App() {
     (id: string, x: number, width: number) => {
       if (!history.inGesture) history.touch('resize', snapRef.current);
       setAnnotations(
-        (topoLiveRef.current.annotations ?? []).map((a) =>
-          a.id === id && isNote(a)
-            ? {
-                ...a,
-                x,
-                // Clamped here as well as in the canvas, because this is the
-                // boundary the model is written through: a width that only
-                // the gesture bounded could still arrive out of range from a
-                // future caller.
-                width: Math.min(Math.max(width, NOTE_MIN_WIDTH), NOTE_MAX_WIDTH),
-              }
-            : a,
-        ),
+        (topoLiveRef.current.annotations ?? []).map((a) => {
+          if (a.id !== id || !isNote(a)) return a;
+          const next: Note = {
+            ...a,
+            x,
+            // Clamped here as well as in the canvas, because this is the
+            // boundary the model is written through: a width that only
+            // the gesture bounded could still arrive out of range from a
+            // future caller.
+            width: Math.min(Math.max(width, NOTE_MIN_WIDTH), NOTE_MAX_WIDTH),
+          };
+          // Dragging a side is what pins a note's width: from here on it
+          // wraps there, as Eraser's text does once resized. Deleted rather
+          // than set false, so the field stays absent from share links and
+          // history compares it as absent.
+          delete next.autoResize;
+          return next;
+        }),
       );
     },
     [history, setAnnotations],
@@ -1399,6 +1425,8 @@ export default function App() {
           y,
           width: NOTE_DEFAULT_WIDTH,
           size: 'md',
+          // Born hugging its text; a side drag pins the width.
+          autoResize: true,
         },
       ]);
       setSelectedIds(new Set([id]));
@@ -1436,7 +1464,7 @@ export default function App() {
       const anns = topoLiveRef.current.annotations ?? [];
       const cur = anns.find((a) => a.id === id);
       if (!cur || cur.kind !== 'note') return;
-      const next = text.slice(0, 2000);
+      const next = text.slice(0, NOTE_MAX_CHARS);
       if (!next.trim()) {
         // An emptied note is removed outright: invisible and unselectable,
         // it would otherwise be litter the reader cannot find to delete.
@@ -2292,7 +2320,14 @@ export default function App() {
   useEffect(() => {
     if (!sharePending) return;
     let cancelled = false;
-    void decodeTopology(window.location.hash).then((result) => {
+    // A stored link keeps its id in the query and its key in the fragment,
+    // so it is recognised by the pair rather than by a prefix. Everything
+    // after the decode is identical: both routes end in the same validated
+    // topology and the same toast.
+    const opening = hasStoredLink(window.location.search, window.location.hash)
+      ? fetchStored(window.location.search, window.location.hash)
+      : decodeTopology(window.location.hash);
+    void opening.then((result) => {
       if (cancelled) return;
       if (result.status === 'ok') {
         setTopology(result.topology);
@@ -2326,29 +2361,60 @@ export default function App() {
   }, [engine, resetLostRate]);
 
   /**
-   * Copy link. Writes the whole design into the URL fragment and puts that
-   * URL on the clipboard, so the confirmation the reader gets is the same
-   * receipt undo and redo use.
+   * Open the share dialog without building anything. The design is only
+   * uploaded once the reader asks for a link, so looking is free and a
+   * store write always follows a deliberate click.
+   */
+  const handleOpenShare = useCallback(() => {
+    setShareState({ status: 'idle' });
+    setShareOpen(true);
+  }, []);
+
+  /**
+   * Build the link. Goes to the store first, which is what keeps the URL
+   * short whatever the design; where there is no store, or it cannot be
+   * reached, the fragment format still carries the whole design.
    */
   const handleCopyLink = useCallback(() => {
+    setShareState({ status: 'working' });
     void (async () => {
-      let text: string;
-      try {
-        text = await buildShareUrl(topology, window.location.href);
-        await navigator.clipboard.writeText(text);
-      } catch {
-        toastSeq.current += 1;
-        setToast({
-          text: 'Could not copy the link. Your browser blocked clipboard access.',
-          id: toastSeq.current,
-        });
-        return;
+      // The store first, because it is what keeps a link short enough to
+      // survive being pasted. Where there is no store configured, or it
+      // cannot be reached, the fragment format still carries the design
+      // and is the better answer than no link at all.
+      if (hasStore()) {
+        try {
+          setShareState({
+            status: 'ready',
+            url: await storeTopology(topology, window.location.href),
+          });
+          return;
+        } catch (e) {
+          if (e instanceof ShareStoreError) {
+            setShareState({ status: 'failed', message: e.message });
+            return;
+          }
+          // Anything else came from encoding rather than the network, and
+          // the fragment path below would hit it too.
+        }
       }
-      toastSeq.current += 1;
-      setToast({
-        text: 'Link copied. It carries the whole design.',
-        id: toastSeq.current,
-      });
+
+      try {
+        setShareState({
+          status: 'ready',
+          url: await buildShareUrl(topology, window.location.href),
+        });
+      } catch (e) {
+        // A design that does not fit is told about, never trimmed to fit.
+        // The file export carries any size.
+        setShareState({
+          status: 'failed',
+          message:
+            e instanceof ShareLinkTooLargeError
+              ? `This design is too big for a link (${e.chars} characters; links stop working past ${e.limit}). Save it to a file instead.`
+              : 'Could not build the link.',
+        });
+      }
     })();
   }, [topology]);
 
@@ -2797,6 +2863,31 @@ export default function App() {
             )}
           </a>
 
+          {/* Labelled, and in the bar rather than three levels down inside
+              Settings. Sending a design to someone is a thing people want
+              to do often, and a feature nobody can find has not shipped. */}
+          <button
+            type="button"
+            className="btn app-share-btn"
+            onClick={handleOpenShare}
+            title="Get a link to this design"
+          >
+            <svg
+              width="15"
+              height="15"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5" />
+            </svg>
+            Share
+          </button>
+
           <div className="app-menu-wrap">
             <button
               type="button"
@@ -3132,10 +3223,20 @@ export default function App() {
       <TooltipLayer />
       <Glossary open={glossaryOpen} onClose={closeGlossary} focusId={glossaryFocusId} />
       <Shortcuts open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
+      <Share
+        open={shareOpen}
+        state={shareState}
+        onClose={() => setShareOpen(false)}
+        onShare={handleCopyLink}
+        onExport={() => {
+          setShareOpen(false);
+          handleExport();
+        }}
+      />
       {/* The real file input, kept off screen. A bare one cannot be styled,
           so the Settings row calls click() on this. It lives beside the
-          dialogs rather than in the top bar, which no longer carries any
-          save or share control. */}
+          dialogs rather than in the top bar, which carries only the share
+          control. */}
       <input
         ref={fileInputRef}
         type="file"
@@ -3168,7 +3269,7 @@ export default function App() {
         onClose={() => setSettingsOpen(false)}
         onExport={handleExport}
         onImport={() => fileInputRef.current?.click()}
-        onCopyLink={handleCopyLink}
+        onCopyLink={handleOpenShare}
         onExportImage={handleExportImage}
         onBackup={handleBackup}
         onRestore={() => backupInputRef.current?.click()}

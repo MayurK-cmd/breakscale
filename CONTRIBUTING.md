@@ -84,11 +84,29 @@ would have.
 src/sim/         the simulation engine. No React, no DOM, no I/O
 src/components/  canvas, inspector, metrics, palette
 src/content/     glossary text
+src/share/       share links: the wire format, encryption, the store client
 src/App.tsx      shell: layout, the animation loop, persistence
+worker/          the Cloudflare Worker behind short share links
 ```
 
 The important boundary is that `src/sim` knows nothing about the UI. It is a pure discrete-event
 simulator you can drive from a script, which is what makes it testable.
+
+### Share links, and why you do not need the worker
+
+A design can travel two ways. The whole design can sit in the URL fragment, which needs nothing
+and works offline; or it can go to a small store that hands back an id, which keeps the URL short
+whatever the design. The store never sees a design, because the browser encrypts it first and
+keeps the key in the URL fragment, which browsers do not send to servers.
+
+**You do not need any of that to work on the app.** With no `VITE_SHARE_API` set, which is the
+default, sharing falls back to the fragment format and everything else behaves normally. The
+tests do not need it either: they point the client at a stub rather than at a running worker, so
+`bun run test` passes on a clean checkout.
+
+If you do want to exercise short links, `bun run dev:links` starts the worker alongside the app
+and points one at the other. It needs [Wrangler](https://developers.cloudflare.com/workers/wrangler/),
+which is Cloudflare's CLI, and a free Cloudflare account. Ordinary `bun dev` needs neither.
 
 ## The one rule that matters most
 

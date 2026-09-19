@@ -13,9 +13,9 @@
  *
  * `theme` is also read from the hash (`#theme=dark`), which is where a human
  * pasting a link tends to put it; the query wins when both are present. The
- * hash is otherwise share-link territory (the d1./d2. prefixes) and is left
- * alone: those payloads contain no "=" parameters, so parsing them is a
- * no-op by construction.
+ * hash is otherwise share-link territory (the versioned d1./d2./d3.
+ * prefixes) and is left alone: those payloads contain no "=" parameters,
+ * so parsing them is a no-op by construction.
  *
  * Pure string parsing, so it unit-tests without a DOM. Anything malformed
  * costs only that one parameter; an unknown preset or theme boots the

@@ -4,7 +4,9 @@
 > behave under load. Build a topology, push traffic through it, and watch real
 > queueing behaviour: latency percentiles, queue backlogs, and failure cascades.
 
-Everything runs in the browser. No account, no backend, nothing leaves the page.
+The simulation runs in the browser. No account, no telemetry. A design leaves the
+page only when you share a link, and then only encrypted: the key travels in the
+URL fragment, which browsers never send to a server.
 
 ## What it is for
 
